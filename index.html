@@ -19,6 +19,7 @@
       --blue-soft: #ddf4ff;
       --green-soft: #dafbe1;
       --orange-soft: #fff8c5;
+      --danger: #cf222e;
     }
 
     * { box-sizing: border-box; }
@@ -154,6 +155,13 @@
       font-weight: 600;
     }
 
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
     #repo-search {
       padding: 6px 12px;
       border: 1px solid var(--border);
@@ -161,6 +169,29 @@
       width: 260px;
       font-size: 14px;
       outline: none;
+    }
+
+    .filter-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .filter-btn.active {
+      background: var(--blue-soft);
+      border-color: rgba(33, 136, 255, 0.3);
+      color: var(--accent);
     }
 
     .repos-grid {
@@ -214,6 +245,12 @@
       border: 1px solid rgba(45, 164, 78, 0.2);
     }
 
+    .badge-warn {
+      background: var(--orange-soft);
+      color: #9a6700;
+      border: 1px solid rgba(210, 153, 34, 0.15);
+    }
+
     .repo-link {
       font-size: 13px;
       color: #0969da;
@@ -229,12 +266,26 @@
       font-style: italic;
     }
 
+    .error-box {
+      background: #fff8f8;
+      border: 1px solid rgba(207, 34, 46, 0.2);
+      color: var(--danger);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 14px 0 20px;
+      font-size: 14px;
+    }
+
     @media (max-width: 640px) {
       .section-heading {
         align-items: flex-start;
       }
 
       #repo-search {
+        width: 100%;
+      }
+
+      .toolbar {
         width: 100%;
       }
     }
@@ -278,8 +329,18 @@
 
     <div class="section-heading">
       <h2>📂 Verified Repositories</h2>
-      <input type="text" id="repo-search" placeholder="Filter verified projects...">
+      <div class="toolbar">
+        <div id="filter-group" class="filter-group" aria-label="Repository filters">
+          <button class="filter-btn active" data-filter="all" type="button">All</button>
+          <button class="filter-btn" data-filter="portfolio" type="button">Portfolio</button>
+          <button class="filter-btn" data-filter="learning" type="button">Learning</button>
+          <button class="filter-btn" data-filter="utility" type="button">Utilities</button>
+        </div>
+        <input type="text" id="repo-search" placeholder="Filter verified projects...">
+      </div>
     </div>
+
+    <div id="api-status" class="error-box" style="display:none"></div>
     <div id="repos-grid" class="repos-grid">
       <div class="loading-text">Analyzing root file definitions...</div>
     </div>
@@ -287,7 +348,26 @@
 
   <script>
     const GITHUB_USERNAME = "rkmconsultancey-ai";
+    const FALLBACK_REPOS = [
+      { name: "github-portfolio", description: "Portfolio and dashboard for public GitHub repos.", language: "HTML", html_url: "https://github.com/rkmconsultancey-ai/github-portfolio" },
+      { name: "gitfolio", description: "Minimal developer portfolio template built with Next.js and Tailwind CSS.", language: "JavaScript", html_url: "https://github.com/rkmconsultancey-ai/gitfolio" },
+      { name: "chrome-url-launcher", description: "Launch chrome urls from a lightweight utility project.", language: "JavaScript", html_url: "https://github.com/rkmconsultancey-ai/chrome-url-launcher" },
+      { name: "hello-world", description: "GitHub practice repo to learn the flow and basics.", language: null, html_url: "https://github.com/rkmconsultancey-ai/hello-world" },
+      { name: "Best-Project-to-skill-up", description: "Learning project for improving web development skills.", language: null, html_url: "https://github.com/rkmconsultancey-ai/Best-Project-to-skill-up" },
+      { name: "kilo-tutorial", description: "Tutorial project for building a text editor.", language: null, html_url: "https://github.com/rkmconsultancey-ai/kilo-tutorial" },
+      { name: "rkm-node-app", description: "Node.js sandbox and learning project.", language: null, html_url: "https://github.com/rkmconsultancey-ai/rkm-node-app" },
+      { name: "-rkm-node-app", description: "Node.js and gitignore sandbox for learning.", language: null, html_url: "https://github.com/rkmconsultancey-ai/-rkm-node-app" },
+      { name: "advisory-database", description: "Security vulnerability reference and advisory database.", language: null, html_url: "https://github.com/rkmconsultancey-ai/advisory-database" },
+      { name: "cli", description: "Developer tooling and CLI-related repo.", language: null, html_url: "https://github.com/rkmconsultancey-ai/cli" },
+      { name: "help", description: "Support and issue tracking repository.", language: null, html_url: "https://github.com/rkmconsultancey-ai/help" },
+      { name: "ledgervault-engine", description: "Bookmark organizer and utility project.", language: null, html_url: "https://github.com/rkmconsultancey-ai/ledgervault-engine" },
+      { name: "docker-wps-office", description: "Containerized WPS Office project.", language: null, html_url: "https://github.com/rkmconsultancey-ai/docker-wps-office" },
+      { name: "excel-registration-app", description: "Business app for registration or workflow tasks.", language: null, html_url: "https://github.com/rkmconsultancey-ai/excel-registration-app" }
+    ];
+
     let GITHUB_TOKEN = sessionStorage.getItem("gh_token");
+    let allRepos = [];
+    let currentFilter = "all";
 
     if (!GITHUB_TOKEN) {
       GITHUB_TOKEN = prompt("Enter your GitHub Personal Access Token to bypass rate-limiting (optional):");
@@ -297,12 +377,40 @@
     document.addEventListener("DOMContentLoaded", () => {
       fetchProfile();
       fetchRepos();
+
+      document.getElementById("repo-search").addEventListener("input", function (e) {
+        const val = e.target.value.toLowerCase();
+        renderRepos(filterRepos(allRepos, currentFilter, val));
+      });
+
+      document.querySelectorAll(".filter-btn").forEach(button => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll(".filter-btn").forEach(item => item.classList.toggle("active", item === button));
+          currentFilter = button.dataset.filter;
+          renderRepos(filterRepos(allRepos, currentFilter, document.getElementById("repo-search").value.trim().toLowerCase()));
+        });
+      });
     });
 
     function getFetchOptions() {
       const headers = { Accept: "application/vnd.github+json" };
       if (GITHUB_TOKEN) headers["Authorization"] = `token ${GITHUB_TOKEN}`;
       return { headers };
+    }
+
+    function setApiStatus(message, isError = true) {
+      const box = document.getElementById("api-status");
+      if (!message) {
+        box.style.display = "none";
+        box.textContent = "";
+        return;
+      }
+
+      box.style.display = "block";
+      box.textContent = message;
+      box.style.borderColor = isError ? "rgba(207, 34, 46, 0.2)" : "rgba(45, 164, 78, 0.2)";
+      box.style.background = isError ? "#fff8f8" : "#f0fff4";
+      box.style.color = isError ? "var(--danger)" : "var(--success)";
     }
 
     async function fetchProfile() {
@@ -325,7 +433,52 @@
       }
     }
 
-    let allRepos = [];
+    function isVerifiedRepo(repo) {
+      if (!repo || repo.fork || repo.archived || repo.private) return false;
+      const name = (repo.name || "").trim();
+      const description = (repo.description || "").trim();
+      const language = repo.language || "";
+      const hasMeaningfulMetadata = Boolean(name && (description || language || repo.has_readme !== false));
+      return hasMeaningfulMetadata;
+    }
+
+    function classifyRepo(repo) {
+      const name = (repo.name || "").toLowerCase();
+      const description = (repo.description || "").toLowerCase();
+      const text = `${name} ${description}`;
+
+      if (name.includes("portfolio") || name.includes("gitfolio") || text.includes("portfolio")) return "portfolio";
+      if (name.includes("hello") || name.includes("tutorial") || name.includes("learn") || name.includes("sandbox") || name.includes("node") || text.includes("learning") || text.includes("practice")) return "learning";
+      if (name.includes("security") || name.includes("advisory") || name.includes("cve") || text.includes("security") || text.includes("vulnerability")) return "reference";
+      if (name.includes("cli") || name.includes("tool") || name.includes("launcher") || name.includes("engine") || name.includes("app") || text.includes("utility")) return "utility";
+      return "utility";
+    }
+
+    function renderFallbackState() {
+      const repos = FALLBACK_REPOS.map(repo => ({
+        ...repo,
+        fork: false,
+        archived: false,
+        private: false,
+        has_readme: true
+      }));
+
+      allRepos = repos.filter(isVerifiedRepo);
+      const counts = buildCounts(allRepos);
+      updateDashboardMetrics(counts, allRepos, true);
+      renderRepos(filterRepos(allRepos, currentFilter, ""));
+      setApiStatus("GitHub API request failed. Showing cached fallback data so the dashboard still works.", false);
+    }
+
+    function buildCounts(repos) {
+      return {
+        total: repos.length,
+        verified: repos.length,
+        learning: repos.filter(repo => classifyRepo(repo) === "learning").length,
+        portfolio: repos.filter(repo => classifyRepo(repo) === "portfolio").length,
+        utility: repos.filter(repo => classifyRepo(repo) === "utility").length
+      };
+    }
 
     async function fetchRepos() {
       const grid = document.getElementById("repos-grid");
@@ -337,40 +490,23 @@
           throw new Error(rawRepos.message || "Repository request failed");
         }
 
-        allRepos = rawRepos.filter(repo => {
-          if (repo.fork || repo.archived) return false;
-
-          const name = (repo.name || "").trim();
-          const description = (repo.description || "").trim();
-          const hasReadme = repo.has_readme !== false;
-          const hasMeaningfulMetadata = Boolean(name && (description || repo.language || hasReadme));
-
-          return hasMeaningfulMetadata;
-        });
-
-        updateDashboardMetrics(rawRepos, allRepos);
-        renderRepos(allRepos);
+        allRepos = rawRepos.filter(isVerifiedRepo);
+        const counts = buildCounts(allRepos);
+        updateDashboardMetrics(counts, allRepos, false);
+        renderRepos(filterRepos(allRepos, currentFilter, ""));
+        setApiStatus("", false);
       } catch (err) {
         console.error(err);
-        grid.innerHTML = '<div class="error-text">Failed to filter active project indexes.</div>';
+        grid.innerHTML = '<div class="error-text">Unable to load live GitHub repositories.</div>';
+        renderFallbackState();
       }
     }
 
-    function updateDashboardMetrics(rawRepos, verifiedRepos) {
-      const totalRepos = rawRepos.length || 0;
-      const verifiedCount = verifiedRepos.length || 0;
-      const learningCount = rawRepos.filter(repo => {
-        const name = (repo.name || "").toLowerCase();
-        const desc = (repo.description || "").toLowerCase();
-        const patterns = ["hello", "node", "tutorial", "learn", "practice", "sandbox", "demo"];
-        return patterns.some(p => name.includes(p) || desc.includes(p));
-      }).length;
-
-      const portfolioCount = rawRepos.filter(repo => {
-        const name = (repo.name || "").toLowerCase();
-        const desc = (repo.description || "").toLowerCase();
-        return name.includes("portfolio") || name.includes("gitfolio") || desc.includes("portfolio");
-      }).length;
+    function updateDashboardMetrics(counts, verifiedRepos, isFallback) {
+      const totalRepos = counts.total || verifiedRepos.length || 0;
+      const verifiedCount = counts.verified || verifiedRepos.length || 0;
+      const learningCount = counts.learning || 0;
+      const portfolioCount = counts.portfolio || 0;
 
       document.getElementById("total-repos").textContent = totalRepos;
       document.getElementById("verified-projects").textContent = verifiedCount;
@@ -378,11 +514,29 @@
       document.getElementById("portfolio-projects").textContent = portfolioCount;
     }
 
+    function filterRepos(repos, filterName, searchText = "") {
+      const normalizedSearch = searchText.toLowerCase();
+
+      return repos.filter(repo => {
+        const matchesFilter = filterName === "all" || classifyRepo(repo) === filterName;
+        if (!matchesFilter) return false;
+
+        if (!normalizedSearch) return true;
+
+        const name = (repo.name || "").toLowerCase();
+        const desc = (repo.description || "").toLowerCase();
+        const lang = (repo.language || "").toLowerCase();
+        return name.includes(normalizedSearch) || desc.includes(normalizedSearch) || lang.includes(normalizedSearch);
+      });
+    }
+
     function renderRepos(repos) {
       const grid = document.getElementById("repos-grid");
-      grid.innerHTML = repos.length ? "" : '<div class="empty-text">No public repositories with project metadata were found.</div>';
+      grid.innerHTML = repos.length ? "" : '<div class="empty-text">No repos match the current filter.</div>';
 
       repos.forEach(repo => {
+        const category = classifyRepo(repo);
+        const badgeText = category === "portfolio" ? "Portfolio" : category === "learning" ? "Learning" : "Utility";
         const card = document.createElement("div");
         card.className = "repo-card";
         card.innerHTML = `
@@ -390,24 +544,13 @@
           <p>${repo.description || 'No context details provided.'}</p>
           <div class="card-footer">
             <span class="badge">${repo.language || 'Data Stream'}</span>
-            <span class="badge badge-check">⚖️ ${repo.license ? repo.license.spdx_id : 'N/A'}</span>
-            <span class="badge badge-check">📝 README</span>
+            <span class="badge ${category === 'learning' ? 'badge-warn' : 'badge-check'}">${badgeText}</span>
           </div>
           <a href="${repo.html_url}" target="_blank" class="repo-link">View Source Code →</a>
         `;
         grid.appendChild(card);
       });
     }
-
-    document.getElementById("repo-search").addEventListener("input", function (e) {
-      const val = e.target.value.toLowerCase();
-      renderRepos(allRepos.filter(repo => {
-        const name = (repo.name || "").toLowerCase();
-        const lang = (repo.language || "").toLowerCase();
-        const desc = (repo.description || "").toLowerCase();
-        return name.includes(val) || lang.includes(val) || desc.includes(val);
-      }));
-    });
   </script>
 </body>
 </html>
