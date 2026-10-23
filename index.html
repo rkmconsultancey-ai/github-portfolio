@@ -337,34 +337,22 @@
           throw new Error(rawRepos.message || "Repository request failed");
         }
 
-        allRepos = [];
+        allRepos = rawRepos.filter(repo => {
+          if (repo.fork || repo.archived) return false;
 
-        for (const repo of rawRepos) {
-          if (repo.fork) continue;
-
-          const hasLicense = !!repo.license;
+          const name = (repo.name || "").trim();
+          const description = (repo.description || "").trim();
           const hasReadme = repo.has_readme !== false;
-          const hasGitIgnore = await verifyGitignoreFile(repo.name);
+          const hasMeaningfulMetadata = Boolean(name && (description || repo.language || hasReadme));
 
-          if (hasLicense && hasReadme && hasGitIgnore) {
-            allRepos.push(repo);
-          }
-        }
+          return hasMeaningfulMetadata;
+        });
 
         updateDashboardMetrics(rawRepos, allRepos);
         renderRepos(allRepos);
       } catch (err) {
         console.error(err);
         grid.innerHTML = '<div class="error-text">Failed to filter active project indexes.</div>';
-      }
-    }
-
-    async function verifyGitignoreFile(name) {
-      try {
-        const check = await fetch(`https://api.github.com/repos/${GITHUB_USERNAME}/${name}/contents/.gitignore`, getFetchOptions());
-        return check.status === 200;
-      } catch (e) {
-        return false;
       }
     }
 
@@ -392,7 +380,7 @@
 
     function renderRepos(repos) {
       const grid = document.getElementById("repos-grid");
-      grid.innerHTML = repos.length ? "" : '<div class="empty-text">No repos found matching README, LICENSE, and .gitignore.</div>';
+      grid.innerHTML = repos.length ? "" : '<div class="empty-text">No public repositories with project metadata were found.</div>';
 
       repos.forEach(repo => {
         const card = document.createElement("div");
@@ -404,7 +392,6 @@
             <span class="badge">${repo.language || 'Data Stream'}</span>
             <span class="badge badge-check">⚖️ ${repo.license ? repo.license.spdx_id : 'N/A'}</span>
             <span class="badge badge-check">📝 README</span>
-            <span class="badge badge-check">🔒 .gitignore</span>
           </div>
           <a href="${repo.html_url}" target="_blank" class="repo-link">View Source Code →</a>
         `;
@@ -417,7 +404,8 @@
       renderRepos(allRepos.filter(repo => {
         const name = (repo.name || "").toLowerCase();
         const lang = (repo.language || "").toLowerCase();
-        return name.includes(val) || lang.includes(val);
+        const desc = (repo.description || "").toLowerCase();
+        return name.includes(val) || lang.includes(val) || desc.includes(val);
       }));
     });
   </script>
